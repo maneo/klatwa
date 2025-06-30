@@ -1,0 +1,672 @@
+;
+;  tutaj alokujemy caíÜ pamiëç i caíÜ reszte badziewka
+;
+alokuj_pamiec proc
+
+        mov ax, 09ffh
+        mov edx, offset msg1
+       int 21h
+
+        mov ah, allocate_memory
+        mov edx, 3821056+256000
+       int_eos
+        jc memory_error
+        mov winda_address, edx     ;tablica do windy
+        add edx, 128000*2+1024
+        mov pcv_address, edx       ;tablica do pcv
+        add edx, 128000*2+1024
+        mov tuna_address, edx
+        add edx, 128000*2+1024
+        mov obrus_address, edx
+        add edx, 128000*2+1024
+        mov krzywa_address, edx    ;tablica do krzywego tunelu
+        add edx, 128000*2+1024
+        mov krzywb_address, edx    ;tablica do drugiego krzywego
+        add edx, 128000*2+1024
+        mov scr_buffer, edx        ;bufor ekranu
+        add edx, 65536*2+1024
+        mov scr2_buffer, edx       ;drugi bufor ekranu
+        add edx, 65536*2+1024
+        mov tuna_pattern, edx      ;matryca do scrolla maíego
+        add edx, 8256+1024
+        mov tuna_mini, edx         ;tablica do maíego tunelu
+        add edx, 8256*2+1024
+        mov grey_address, edx      ;textura szara
+        add edx, 65536*2+1024
+        mov grey2_address, edx     ;druga szara
+        add edx, 65536*2+1024
+        mov grey1_address, edx     ;i trzecia szara (zrobili mnie na szaro:)
+        add edx, 65536*2+1024
+        mov texture_address, edx   ; kolorowa
+        add edx, 65536*2+1024
+        mov texture1_address, edx  ;i druga
+        add edx, 65536*2+1024
+        mov rgb_address, edx       ; tablica pomocnicza dla procki dodajÜcej
+                                   ; skíadowe RGB
+        add edx, 65536*2+1024
+        mov text_buffer, edx       ;bufor w kt¢rym piszemy
+        add edx, 18464*2+1024
+        mov text_show, edx         ;bufor kt¢ry odsíaniamy
+        add edx, 18464*2+1024
+        mov maly_buffer, edx       ;bufor na pomniejszony ekran
+        add edx, 8256+1024
+        mov mp2_address, edx       ;tablica odsíoniëç [256x256]
+        add edx, 65536+1024
+        mov panel_address, edx     ;panel?
+        add edx, 102400+1024
+        mov oper_seg, edx          ;pomocniczy bufor dla procki tworzÜcej
+                                   ;textury
+        add edx, 65536*2+1024
+        mov nowy_szary, edx        ;w wyniku pewnych trudnoûci? kopia szarej
+        add edx, 65536*2+1024
+        mov scroll_buffer, edx     ;bufor dla scrolla
+        add edx, 65536*2+1024
+;        mov textura_seg, edx       ;pamiëç potrzbna do obr¢bki textur
+;        add edx, 65536*3+1024
+        mov scroll_text, edx       ;drugi bufor dla scrolla
+        add edx, 135200*2+1024
+        mov ods_address, edx       ;tablica odsíoniëc [320x200]
+        add edx, 65536+1024
+
+        cld
+        mov edi, winda_address     ;czyûcimy pamiëç
+        mov ecx, 4077056/4
+        xor eax, eax
+        rep stosd
+
+        ret
+memory_error:
+      mov ah, exit_error
+      mov edx, offset msger
+      int_eos
+        endp
+;
+;   procka pobiera dane z dysku tz. modka i plik z textami
+;
+load_data proc
+
+        mov ax, 09ffh
+        mov edx, offset msg2
+       int 21h
+
+        mov ah, load_internal_file
+        mov edx, offset text_file
+       int_eos
+        mov text_address, eax
+
+        mov ah,Detect_Sound_Card
+        xor bx, bx
+        xor cx, cx
+        Int_EOS
+
+        mov ah,Load_Module
+        mov al,0                ; Normal Load
+        mov bx,44000            ; Set Replay Rate For SB
+        mov edx, offset modek
+       Int_EOS
+        jc error_msx
+
+ret
+error_msx:
+         mov ah, exit_error
+         mov edx, offset msxmsg
+         int_eos
+endp
+;
+; przygotowuje tablice pomocniczÜ do dodawania rgb
+;
+rgb_tab proc
+
+      mov edi, rgb_address
+      xor ecx, ecx
+@procka:
+      mov bx, cx
+      mov ax, cx
+      and bx, 0000000000011111b
+      and ax, 1111100000000000b
+      mov [edi], bl
+      shr ax, 11
+      inc ecx
+      mov [edi+1], al
+      add edi, 2
+      cmp ecx, 65535
+      jnz @procka
+ret
+endp
+;
+; tu tworze tablice odsíoniëç
+;
+
+;
+; powieksza dwa razy
+;
+rysuj_mniejszy proc
+;   mov esi, robocze
+;   mov edi, mala_textura      ;80x50
+   xor ecx, ecx
+   mov cx, short_kol
+draw_scren:
+  push ecx
+  mov ecx, 2
+dddddd:
+  push ecx
+  push esi
+  call draw_lin
+  pop esi
+  pop ecx
+  dec ecx
+  jnz dddddd
+  add si, short_linia
+  pop ecx
+  dec ecx
+jnz draw_scren
+ret
+draw_lin:
+  xor ecx, ecx
+  mov cx, short_linia
+dralj:
+  mov al, [esi]
+  mov [edi], al
+  mov [edi+1], al
+  add edi, 2
+  inc esi
+  dec cx
+jnz dralj
+ret
+endp
+;
+;      procka rozmywa ksztalty na ekranie ver. for eos 3.05 l.u.30.XI.99
+;   in: esi - source adres
+;       edi - dest adres
+;      /ecx - ilosc pixeli/ (zremowac linie i wrzucic do cx wartosc wejsciowo)
+zacma proc
+      sub esi, 320
+      mov cx, 64000+640
+rob:
+      xor ax, ax
+      xor bx, bx
+      mov al,[esi+1]
+      cbw
+      add bx, ax
+      mov al,[esi+320]
+      cbw
+      add bx, ax
+      mov al,[esi-1]
+      cbw
+      add bx, ax
+      mov al,[esi-320]
+      cbw
+      add bx, ax
+      shr bl, 2
+      mov [edi], bl
+      inc esi
+      inc edi
+      dec ecx
+      jnz rob
+ret
+zacma endp
+;
+; to samo z tym ße dla bitmapki 256x256
+;
+zacma256 proc
+      sub esi, 256
+      mov ecx, 65535+256+256
+rob256:
+      xor ax, ax
+      xor bx, bx
+      mov al,[esi+1]
+      cbw
+      add bx, ax
+      mov al,[esi+256]
+      cbw
+      add bx, ax
+      mov al,[esi-1]
+      cbw
+      add bx, ax
+      mov al,[esi-256]
+      cbw
+      add bx, ax
+      shr bl, 2
+      mov [edi], bl
+      inc esi
+      inc edi
+      dec ecx
+      jnz rob256
+ret
+endp
+;
+; przygotowuje tablice odsíoniëç
+;
+tablice_ods proc
+
+          mov ax, 09ffh
+          mov edx, offset msg4
+         int 21h
+
+          mov edi, oper_seg
+          mov esi, offset mp5m_address
+          call rysuj_mniejszy
+
+          mov edi, ods_address
+          mov esi, oper_seg
+          call zacma
+          mov esi, ods_address
+          mov edi, oper_seg
+          call zacma
+
+          mov ax, 320
+          mov dlug_linii, ax
+          mov ax, 160
+          mov short_linia, ax
+          mov ax, 100
+          mov short_kol, ax
+          mov ax, 200
+          mov kolumny, ax
+          mov esi, oper_Seg
+          mov edi, ods_address
+          call rysuj_mniejszy
+
+          mov esi, ods_address
+          mov edi, oper_seg
+          call zacma
+          mov esi, oper_seg
+          mov edi, ods_address
+          call zacma
+
+          mov ax, 128
+          mov dlug_linii, ax
+          mov kolumny, ax
+          mov ax, 64
+          mov short_linia, ax
+          mov short_kol, ax
+          mov edi, oper_seg
+          mov esi, offset texture8
+          call rysuj_mniejszy
+
+
+          mov edi, mp2_address
+          mov esi, oper_seg
+          call zacma256
+          mov esi, mp2_address
+          mov edi, oper_seg
+          call zacma256
+
+          mov ax, 256
+          mov dlug_linii, ax
+          mov kolumny, ax
+          mov ax, 128
+          mov short_linia, ax
+          mov short_kol, ax
+          mov edi, mp2_address
+          mov esi, oper_seg
+          call rysuj_mniejszy
+
+          mov edi, oper_seg
+          mov esi, mp2_address
+          call zacma256
+          mov edi, mp2_address
+          mov esi, oper_seg
+          call zacma256
+
+ret
+endp
+;
+; tu tworzymy textury
+;
+;
+;
+;
+textury_rob proc
+
+
+    mov ax, 09ffh
+    mov edx, offset msg3
+   int 21h
+
+    mov edx, 64
+    mov dlugosc, edx
+
+    mov esi, offset textura_1_64x64
+    mov ebp, offset paleta_textury_1
+    mov edi, oper_seg
+    call zamien
+
+    mov esi, oper_seg
+    mov edi, texture_address
+    call scalex2
+
+    mov esi, texture_address
+    mov edi, oper_seg
+    call blurrm
+    mov edi, texture_address
+    mov esi, oper_seg
+    call blurrm
+
+    mov edx, 128
+    mov dlugosc, edx
+
+    mov esi, texture_address
+    mov edi, oper_seg
+    call scalexx2
+
+    mov esi, oper_seg
+    mov edi, texture_address
+    call blurr
+    mov edi, oper_seg
+    mov esi, texture_address
+    call blurr
+    mov esi, oper_seg
+    mov edi, texture_address
+    call blurr
+
+    mov edx, 64
+    mov dlugosc, edx
+
+    mov esi, offset textura_2_64x64
+    mov ebp, offset paleta_textury_2
+    mov edi, oper_seg
+    call zamien
+
+    mov esi, oper_seg
+    mov edi, texture1_address
+    call scalex2
+
+    mov esi, texture1_address
+    mov edi, oper_seg
+    call blurrm
+    mov edi, texture1_address
+    mov esi, oper_seg
+    call blurrm
+
+    mov esi, texture1_address
+    mov edi, oper_seg
+    mov edx, 128
+    mov dlugosc, edx
+    call scalexx2
+
+    mov esi, oper_seg
+    mov edi, texture1_address
+    call blurr
+    mov edi, oper_seg
+    mov esi, texture1_address
+    call blurr
+    mov esi, oper_seg
+    mov edi, texture1_address
+    call blurr
+
+
+ret
+endp
+zamien proc
+    mov ecx, 64*64
+@czas:
+    xor ebx, ebx
+    mov bl, [esi]
+    inc esi
+    shl bx, 1
+    mov ax, [ebp+ebx]
+    mov [edi], ax
+    add edi, 2
+    dec ecx
+    jnz @czas
+ret
+endp
+
+dlugosc dd 64
+
+scalex2 proc
+ mov ecx, dlugosc
+ add ecx, 16
+scaluj:
+ mov edx, dlugosc
+@scaluj:
+ mov ax, [esi]
+ mov [edi], ax
+ mov [edi+2], ax
+ mov [edi+256], ax
+ mov [edi+256+2], ax
+ add edi, 4
+ add esi, 2
+ dec edx
+ jnz @scaluj
+ add edi, 256
+ dec ecx
+ jnz scaluj
+ret
+endp
+scalexx2 proc
+ mov ecx, dlugosc
+ add ecx, 16
+caluj:
+ mov edx, dlugosc
+@caluj:
+ mov ax, [esi]
+ mov [edi], ax
+ mov [edi+2], ax
+ mov [edi+512], ax
+ mov [edi+512+2], ax
+ add edi, 4
+ add esi, 2
+ dec edx
+ jnz @caluj
+ add edi, 256*2
+ dec ecx
+ jnz caluj
+ret
+endp
+
+;
+; blurr for 16bpp mode
+;
+blurr proc
+add esi, 512
+    mov ecx, 65536-256
+@blurr:
+    mov ax, [esi]
+    mov bx, [esi+2]
+    and ax,00000000000011111b
+    and bx,00000000000011111b
+    add ax, bx
+    mov bx, [esi-512]
+    and bx,00000000000011111b
+    add ax, bx
+    mov bx, [esi+512]
+    and bx,00000000000011111b
+    add ax, bx
+    shr ax, 2
+    mov [edi], ax
+
+    mov ax, [esi]
+    mov bx, [esi+2]
+    and ax,00000011111100000b
+    and bx,00000011111100000b
+    shr ax, 5
+    shr bx, 5
+    add ax, bx
+    mov bx, [esi+512]
+    and bx,00000011111100000b
+    shr bx, 5
+    add ax, bx
+    mov bx, [esi-512]
+    and bx,00000011111100000b
+    shr bx, 5
+    add ax, bx
+    shr ax, 2
+    shl ax, 5
+    mov bx, [edi]
+    add ax, bx
+
+    mov [edi], ax
+    mov ax, [esi-2]
+    mov bx, [esi+2]
+    and bx, 01111100000000000b
+    and ax, 01111100000000000b
+    shr ax, 11
+    shr bx, 11
+    add ax, bx
+    mov bx, [esi+512]
+    and bx, 01111100000000000b
+    shr bx, 11
+    add ax, bx
+    mov bx, [esi-512]
+    and bx, 01111100000000000b
+    shr bx, 11
+    add ax, bx
+    shr ax, 2
+    shl ax, 11
+
+   ; and ax, 1111100000000000b
+
+    mov bx, [edi]
+    add ax, bx
+    mov [edi], ax
+    add esi, 2
+    add edi, 2
+    dec ecx
+  jnz @blurr
+ret
+endp
+;
+; blurr for 16bpp mode pix [128x128]
+;
+blurrm proc
+add esi, 256
+    mov ecx, 128*128-128
+@blurrm:
+    mov ax, [esi]
+    mov bx, [esi+2]
+    and ax,00000000000011111b
+    and bx,00000000000011111b
+    add ax, bx
+    mov bx, [esi-256]
+    and bx,00000000000011111b
+    add ax, bx
+    mov bx, [esi+256]
+    and bx,00000000000011111b
+    add ax, bx
+    shr ax, 2
+    mov [edi], ax
+
+    mov ax, [esi]
+    mov bx, [esi+2]
+    and ax,00000011111100000b
+    and bx,00000011111100000b
+    shr ax, 5
+    shr bx, 5
+    add ax, bx
+    mov bx, [esi+256]
+    and bx,00000011111100000b
+    shr bx, 5
+    add ax, bx
+    mov bx, [esi-256]
+    and bx,00000011111100000b
+    shr bx, 5
+    add ax, bx
+    shr ax, 2
+    shl ax, 5
+    mov bx, [edi]
+    add ax, bx
+
+    mov [edi], ax
+    mov ax, [esi-2]
+    mov bx, [esi+2]
+    and bx, 01111100000000000b
+    and ax, 01111100000000000b
+    shr ax, 11
+    shr bx, 11
+    add ax, bx
+    mov bx, [esi+256]
+    and bx, 01111100000000000b
+    shr bx, 11
+    add ax, bx
+    mov bx, [esi-256]
+    and bx, 01111100000000000b
+    shr bx, 11
+    add ax, bx
+    shr ax, 2
+    shl ax, 11
+
+   ; and ax, 1111100000000000b
+
+    mov bx, [edi]
+    add ax, bx
+    mov [edi], ax
+    add esi, 2
+    add edi, 2
+    dec ecx
+  jnz @blurrm
+ret
+endp
+
+;ˇ
+;
+; adresy i nazwy plikow
+;
+        winda_address dd ?
+        pcv_address dd ?
+        tuna_address dd ?
+        scroll_text dd ?
+        obrus_address dd ?
+        krzywa_address dd ?
+        krzywb_address dd ?
+        scr_buffer dd ?
+        scr2_buffer dd ?
+        tuna_pattern dd ?
+        tuna_mini dd ?
+        grey_address dd ?
+        grey2_address dd ?
+        texture_address dd ?
+        texture1_address dd ?
+        texture2_address ˇdd ?
+        rgb_address dd ?
+;textura_seg dd ?
+        text_buffer dd ?
+        text_show dd ?
+        maly_buffer dd ?
+        text_des dd ?
+        mp2_address dd ?
+        text_address dd ?
+        panel_address dd ?
+        oper_seg dd ?
+        panel8_address dd pnacze2
+        nowy_szary dd ?
+        scroll_buffer dd ?
+        ods_address dd ?
+;
+;  nazwy plik¢w
+;
+        text_file db 'text.dat',0
+        modek db 'supaintr.mod',0
+;
+; msgs
+;
+msg1 db '    ˛ˇPrepering your pain'
+     db 0ah, 0dh
+     db ' $   '
+msg2 db '   ˛ Precalculating pleasure'
+     db 0ah, 0dh
+     db ' $   '
+msg3 db '   ˛ Eating your dreams'
+     db 0ah, 0dh
+     db ' $   '
+msg4 db '   ˛ Calling your daimons'
+     db 0ah, 0dh
+     db '$    '
+msxmsg db 'error_loading_module_$'
+msger db 'cannot allocate memory$'
+;
+; zmienne dla procedury tworzÜcej tablice odsíoniëç
+;
+        dlug_linii dw 320
+        short_linia dw 80
+        kolumny dw 200
+        short_kol dw 50
+        ile_punktow dw 64000
+;
+; zmienne dla procedury tworzÜcej textury
+;
+noznik dd 255
+xe dw -128
+ye dw -128
+;
+; end of include

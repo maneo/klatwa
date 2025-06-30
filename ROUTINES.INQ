@@ -1,0 +1,872 @@
+;
+; procki przydatne (konieczne)wolne jak wszystko w tym intrze
+;
+rgb_add proc
+     mov esi, scr_buffer
+;     mov edi, scr2_buffer
+     mov ebx, rgb_address
+     mov ecx, 64000
+adding:
+     push ecx
+     xor ebp, ebp
+     mov bp, [esi]
+     shl bp,1
+     mov al, [ebx+ebp]
+     mov dl, [ebx+ebp+1]
+     mov bp, [edi]
+     shl bp, 1
+     mov dh, [ebx+ebp]
+     mov ah, [ebx+ebp+1]
+     add al, dh
+     xor dh, dh
+     add dl, ah
+     cmp al, 00011111b
+     jle rgboki
+     mov al, 00011111b
+rgboki:
+     cmp dl, 00011111b
+     jle rgboki2
+     mov dl, 00011111b
+rgboki2:
+
+     xor ah, ah
+     shl dx, 11
+     xor cx, cx
+     add cx, dx
+     add cx, ax
+     mov ax, [esi]
+     mov dx, [edi]
+     and ax, 0000011111100000b
+     and dx, 0000011111100000b
+     shr ax, 5
+     shr dx, 5
+     add ax, dx
+     cmp al, 0011111b
+     jle rgboki3
+     mov al, 0011111b
+rgboki3:
+     shl ax, 5
+     add cx, ax
+     mov [esi],cx
+     add edi, 2
+     add esi, 2
+     pop ecx
+     loop adding
+     ret
+endp
+;
+; wrzuca do bufora pomniejszony obrazek 320x200 (np. ekran)
+;
+skrzat proc
+   mov esi, scr_buffer
+   mov edi, maly_buffer      ;80x50
+  mov dx, 25*2
+draw_screen:
+  call draw_line
+  add esi, 3*640
+  dec dx
+jnz draw_screen
+ret
+draw_line:
+   mov cx, 80
+draluj:
+   mov ax, [esi]
+   mov [edi], ax
+    add esi, 4*2
+    add edi, 2
+   dec cx
+ jnz draluj
+ret
+endp
+;
+; draw sprite
+;
+;     in: ax, bx - [x_lenght, y_lenght]
+;	  edx, ecx - [x, y]
+;
+     dsx dd ?
+     zmienna dd ?
+     mnoznik dw 640
+D_Spr PROC
+
+   mov ebp, eax
+;   mov edi, scr_buffer
+   mov ax, 320*2
+   mov zmienna, ecx
+   fild zmienna
+   fimul mnoznik
+   fistp zmienna
+   mov ecx, zmienna
+   shl dx, 1
+   add edx, ecx
+   add edi, edx
+   mov eax, ebp
+
+   mov ecx, 320
+   sub ecx, eax
+   shl cx, 1
+   mov dsx, ecx
+
+d_sa:
+    mov cx, ax
+d_sb:
+    mov dx, [esi]
+    add esi, 2
+    cmp  dx, 0
+   jz _ie
+    mov [edi], dx
+_ie:
+    add edi,2
+    dec cx
+    jnz d_sb
+    add edi, dsx
+    dec bx
+   jnz d_sa
+
+ret
+endp
+;
+; rysuje z zerami
+;
+D_Sp PROC
+
+   mov ebp, eax
+;   mov edi, scr_buffer
+   mov ax, 320*2
+   mov zmienna, ecx
+   fild zmienna
+   fimul mnoznik
+   fistp zmienna
+   mov ecx, zmienna
+   shl dx, 1
+   add edx, ecx
+   add edi, edx
+   mov eax, ebp
+
+   mov ecx, 320
+   sub ecx, eax
+   shl cx, 1
+   mov dsx, ecx
+
+d_saaa:
+    mov cx, ax
+d_sba:
+    mov dx, [esi]
+    add esi, 2
+    mov [edi], dx
+_iea:
+    add edi,2
+    dec cx
+    jnz d_sba
+    add edi, dsx
+    dec bx
+   jnz d_saaa
+ret
+endp
+;
+; draw sprite [y,x]
+;
+;     in: ax, bx - [x_lenght, y_lenght]
+;	  edx, ecx - [x, y]
+;
+D_S_O PROC
+
+   mov ebp, eax
+   mov edi, scr_buffer
+
+   mov ax, 320*2
+   xchg ecx, edx
+   mul dx
+   mov edx, eax
+   shl cx, 1
+   add edx, ecx
+   mov eax, ebp
+   add edi, edx
+
+   mov ecx, 320
+   sub ecx, ebx
+   shl cx, 1
+   mov dsx, ecx
+
+d_saa:
+    mov cx, bx
+    push esi
+d_sbb:
+    mov dx, [esi]
+    add esi, 160
+    mov [edi], dx
+_iee:
+    add edi,2
+    dec cx
+    jnz d_sbb
+    add edi, dsx
+    pop esi
+    add esi, 2
+    dec ax
+   jnz d_saa
+
+ret
+endp
+
+;
+; uzyteczne macro wrzuca do odpowiednich rejestrow parametry dla d_spr
+;
+sizes macro x_length,y_length,x_coord,y_coord,zrodlo, dest
+     mov eax, x_length
+     mov ebx, y_length
+     mov edx, x_coord
+     mov ecx, y_coord
+     mov esi, zrodlo
+     mov edi, dest
+endm
+;
+; in: x_t, y_t
+; out: [outstanding effect on your screen:)]
+;
+   x_t dw 125
+   y_t dw 90
+   text_col dw 0ffffh
+   text_dest dd scr_buffer
+   text_2 dd ?
+   ;zmienne do text
+
+zmien_wsp macro wspx,wspy
+   mov ax, wspx
+   mov bx, wspy
+   mov x_t, ax
+   mov y_t,  bx
+   endm
+;
+; pisze text fontem u§ytkownika
+;
+pisz_tekx proc
+	mov esi, offset font_address
+	mov edi, text_address
+	; na poczatek trzeba by bylo obliczyc offset
+	; w pamieci ekranu
+	xor eax, eax
+	xor ebx, ebx
+	mov bx, x_t
+	mov ax, y_t
+	mov dx, 320*2
+	mul dx
+	shl bx, 1
+	add ax, bx
+	mov ebp, eax		 ;zachowaj offset
+	;
+	; teraz sprawdzimy jaki jest pierwszy znak
+	;
+check:	push ebp
+	mov bl, [edi]
+	inc edi
+	cmp bl, 0dh
+	jnz znak_ok
+	inc edi
+	jmp koniec
+	;
+	; mamy znak to go trza rozrysowac
+	;
+znak_ok: xor bh, bh
+	 shl bx, 4
+	 mov cx, 16
+	 push edi
+	 mov edi, text_dest
+lini:	 mov al, [esi+ebx]
+	 mov dl, 10000000b
+	 mov dh, 8
+pix_ok:  test al, dl	 ;sprawdz czy w tym miejscu postawic pixel
+	 jz pix_fix	 ; :)
+;	 call dodaj
+         push ax
+         mov ax, text_col
+         mov [edi+ebp], ax
+         pop ax
+pix_fix: add ebp, 2
+	 shr dl, 1
+	 dec dh
+	 jnz pix_ok
+
+	 add ebp, 312*2
+	 inc bl 	    ;nastepna linia
+	 loop lini
+	 pop edi
+	 pop ebp
+	 add ebp, 9*2
+	 jmp check
+koniec:
+	 mov text_address, edi
+	 pop edi
+	   ret
+pisz_tekx endp
+dodaj:
+	 push ax
+	 push bx
+	 push dx
+	 mov ax, text_col
+	 and ax, 0000000000011111b
+	 mov bx, [edi+ebp]
+	 and bx, 0000000000011111b
+	 add ax, bx
+	 xor ah, ah
+	 cmp ax, 0000000000011111b
+	 jng added
+	 mov ax, 0000000000011111b
+added:
+	 mov bx, text_col
+	 and bx, 0000011111100000b
+ ;	  shr bx, 5
+	 mov dx, [edi+ebp]
+	 and dx, 0000011111100000b
+;	  shr bx, 5
+	 add dx,bx
+	 cmp dx, 0000011111100000b
+	 jng added1
+	 mov dx, 0000011111100000b
+added1:
+	 add ax, dx
+	 mov bx, text_col
+	 and bx, 111110000000000b
+	 mov dx, [edi+ebp]
+	 and dx, 111110000000000b
+	 shr dx, 11
+	 shr bx, 11
+	 add dx, bx
+	 cmp dx, 000000000011111b
+	 jng added2
+	 mov dx, 000000000011111b
+added2:
+	 shl bx, 11
+	 shl dx, 11
+	 add ax, dx
+	 mov [edi+ebp], ax
+	 pop dx
+	 pop bx
+	 pop ax
+ret
+;
+;   druga procka piszaca orientujaca sie inaczej
+;
+;
+        x_t2 dw 0
+        y_t2 dw 0
+	dllin dw 512
+	wyni dd ?
+
+pisz_bufor proc
+	mov esi, offset font_address
+	mov edi, text_address
+	; na poczatek trzeba by bylo obliczyc offset
+	; w pamieci ekranu
+	xor eax, eax
+	xor ebx, ebx
+	mov bx, x_t2
+        fild y_t2
+        fimul dllin
+        fistp wyni
+;        mov ax, y_t2
+;        mov dx, 256*2
+;        mul dx
+        mov eax, wyni
+	shl bx, 1
+	add ax, bx
+	mov ebp, eax		 ;zachowaj offset
+        xor ebx, ebx
+	;
+	; teraz sprawdzimy jaki jest pierwszy znak
+	;
+checka: push ebp
+	mov bl, [edi]
+	inc edi
+	cmp bl, 0dh
+	jnz znak_oka
+	inc edi
+	jmp konieca
+	;
+	; mamy znak to go trza rozrysowac
+	;
+znak_oka: xor bh, bh
+	 shl bx, 4
+	 mov cx, 16
+	 push edi
+	 mov edi, text_des
+linii:	 mov al, [esi+ebx]
+	 mov dl, 10000000b
+	 mov dh, 8
+pix_oka:  test al, dl	 ;sprawdz czy w tym miejscu postawic pixel
+	 jz pix_fixa	 ; :)
+	 push ax
+	 mov ax, text_col
+	 mov [edi+ebp], ax
+	 pop ax
+pix_fixa: 
+         add ebp, 2
+	 shr dl, 1
+	 dec dh
+	 jnz pix_oka
+
+	 add ebp, 248*2
+	 inc bl 	    ;nastepna linia
+	 loop linii
+	 pop edi
+	 pop ebp
+	 add ebp, 9*2
+	 jmp checka
+konieca:
+	 mov text_address, edi
+	 pop edi
+	   ret
+endp
+
+clrscr macro co_czyscic
+	mov edi, co_czyscic
+	xor eax, eax
+	mov ecx, 65536/2
+	rep stosd
+endm
+
+CZEKAJ MACRO pater,row
+local czek
+czek:
+mov ah,[Current_Pattern]
+mov bl,[Current_Note]
+ cmp ah,pater
+ jne czek
+ cmp bl,row
+ jb czek
+ mov ah,1
+ DosInt 16h
+ jnz papa
+ENDM
+
+grey1_address dd ?
+
+grey_tex proc
+
+   mov ebp, rgb_address
+   mov cx, 65535
+arghh:
+   xor ebx, ebx
+   xor eax, eax
+   xor edx, edx
+   mov bx, [esi]
+   shl bx, 1
+   mov al, [ebp+ebx]
+   mov dl, [ebp+ebx+1]
+   mov bx, [esi]
+   and bx, 0000011111100000b
+   shr bx, 5
+   add ax, bx
+   add ax, dx
+   shr ax, 2
+   mov bx, ax
+   shl ax,6
+   add bx,ax
+   shl ax,5
+   add bx,ax
+   mov [edi], bx
+   add esi, 2
+   add edi, 2
+   dec cx
+   jnz arghh
+ret
+endp
+
+partia MACRO kolor_czy_nie
+ xor ax, ax
+ mov x_t2, ax
+ mov y_t2, ax
+ mov edi, text_buffer
+ mov text_des, edi
+ call pisz_bufor
+  mov ax, 16
+  mov y_t2, ax
+  inc x_t2
+  inc x_t2
+ mov edi, text_buffer
+ mov text_des, edi
+ call pisz_bufor
+  mov ax, 34
+  mov y_t2, ax
+  dec x_t2
+ mov edi, text_buffer
+ mov text_des, edi
+ call pisz_bufor
+  mov ax, 50
+  mov y_t2, ax
+  inc x_t2
+  inc x_t2
+ mov edi, text_buffer
+ mov text_des, edi
+ call pisz_bufor
+   xor ax, ax
+  mov x_t2, ax
+  mov y_t2, ax
+ mov esi, kolor_czy_nie
+ call text_text
+  ENDM
+;
+;
+;
+;
+texture proc
+   mov ebx, panel8_address
+   mov edi, panel_address
+   mov esi, texture_address
+   mov ecx, 200*256
+@hahah:
+   xor ax, ax
+   mov al, [ebx]
+   cmp ax, 0
+   je daleja
+   mov ax, [esi]
+   mov [edi], ax
+daleja:
+   add edi, 2
+   add esi, 2
+   inc ebx
+   dec ecx
+   jnz @hahah
+ret
+endp
+text_text proc
+   mov edi, text_buffer
+   mov ecx, 256*72
+gowno:
+   mov ax, [edi]
+   cmp ax, 0
+   je nie_gowno
+   mov ax, [esi]
+   mov [edi], ax
+nie_gowno:
+   add edi, 2
+   add esi, 2
+   dec cx
+   jnz gowno
+ret
+endp
+;
+; procedura texturuje text scroll'a
+;
+;
+
+text_scroll proc
+   mov edi, scroll_text
+   mov ecx, 2
+duzy:
+   mov esi, grey2_address
+   push ecx
+   mov ecx, 256*256
+tyjko:
+   mov ax,[edi]
+   cmp ax, 0
+   je tyhko
+   mov ax, [esi]
+   mov [edi], ax
+tyhko:
+   add esi, 2
+   add edi, 2
+   dec ecx
+   jnz tyjko
+   pop ecx
+   dec ecx
+   jnz duzy
+   mov ecx, 48*256
+   mov esi, grey2_address
+thkl:
+   mov ax, [edi]
+   cmp ax, 0
+   je  fyhko
+   mov ax, [esi]
+   mov [edi],ax
+fyhko:
+   add esi, 2
+   add edi, 2
+   dec ecx
+   jnz thkl
+ret
+endp
+;
+;
+;
+;
+logo_kolor dw 0
+draw_logo proc
+
+
+      mov edi, scr_buffer
+      xor eax, eax
+      xor ebx,ebx
+      mov ax, 15
+      mov bx, 70
+      xchg bh, bl
+      add ax, bx
+      shr bx, 2
+      add ax, bx
+      shl ax, 1
+;      add eax, ebx
+      add edi, eax
+
+      mov esi, offset kl_logo
+      mov ecx, 60
+no_to:
+      push ecx
+      mov ecx, 290
+rysuj:ÿ
+      xor ax, ax
+      mov al, [esi]
+      cmp ax, 0
+      jz jest_dob
+      mov ax, logo_kolor
+      mov [edi], ax
+jest_dob:
+      inc esi
+      add edi, 2
+      dec cx
+      jnz rysuj
+
+      add edi, 60
+      pop ecx
+      dec ecx
+      jnz no_to
+ret
+endp
+;
+;
+;
+;
+;
+
+fade_i_logo proc
+
+     mov ecx, 14
+fadei:
+     push ecx
+     call draw_logo
+     mov ax, logo_kolor
+     add ax, 00000100001000001b
+     mov logo_kolor, ax
+     mov esi, scr_buffer
+     call draw_buffer
+     mov ax, 0100h
+    int 16h
+     jnz papa
+     mov ah, wait_vbl
+    int_eos
+     pop ecx
+     dec ecx
+     jnz fadei
+ret
+endp
+;
+;
+;
+fade_o_logo proc
+       mov ecx, 14
+fadeo:
+      push ecx
+      call draw_logo
+      mov ax, logo_kolor
+      sub ax, 00000100001000001b
+      mov esi, scr_buffer
+      call draw_buffer
+      mov ax, 0100h
+     int 16h
+      jnz papa
+      mov ah, wait_vbl
+     int_eos
+      pop ecx
+      dec ecx
+      jnz fadeo
+ret
+endp
+
+check_esc macro
+mov ax, 0100h
+int 16h
+cmp ax, Escape
+je papa
+endm
+
+fade_in proc
+
+	mov cx, 14
+fx1:
+	push ecx
+	mov edi, text_2
+	mov text_address, edi
+	call pisz_tekx
+	mov esi, scr_buffer
+	call draw_buffer
+	clrscr scr_buffer
+	mov ax, 0100h
+       int 16h
+	jnz papa
+	mov ah, wait_vbl
+	int_eos
+	mov ax, text_col
+	add ax, 0000100001000001b
+	mov text_col, ax
+	pop ecx
+   loop fx1
+	 ret
+	 endp
+
+fade_out proc
+
+	mov cx, 14
+fxe:
+	push ecx
+	mov edi, text_2
+	mov text_address, edi
+	call pisz_tekx
+	mov esi, scr_buffer
+	call draw_buffer
+	clrscr scr_buffer
+	mov ax, 0100h
+       int 16h
+	jnz papa
+	mov ah, wait_vbl
+	int_eos
+	mov ax, text_col
+	sub ax, 0000100001000001b
+	mov text_col, ax
+	pop ecx
+   loop fxe
+	xor ax, ax
+	mov text_col, ax
+	mov edi, text_2
+	mov text_address, edi
+	call pisz_tekx
+	mov esi, scr_buffer
+	call draw_buffer
+	mov ah, wait_vbl
+       int_eos
+
+ret
+endp
+;
+;
+;
+prep_scroll proc
+
+   mov edi, scroll_text
+   xor eax, eax
+   mov ecx, 135200/2
+  rep stosd
+
+
+   xor ax, ax
+   mov y_t2, ax
+   mov x_t2, ax
+
+   mov ecx, 35
+
+petleka:
+   push ecx
+   mov edi, scroll_text
+   mov text_des, edi
+   call pisz_bufor
+   xor edi, edi
+   mov bx, y_t2
+   add bx, 16
+   mov y_t2, bx
+   xor ax, ax
+   mov x_t2, ax
+   pop ecx
+   dec ecx
+   jnz petleka
+
+call text_scroll
+
+ret
+endp
+
+ostatnia dd 0
+linio dw 512
+wynik dd 0
+move_scroll proc
+      cld
+
+      mov edi, scroll_buffer
+      xor eax, eax
+      mov ecx, 256/2
+      rep stosd
+
+      mov esi, scroll_buffer
+      mov edi, scroll_buffer
+      add esi, 512
+      mov ecx, 198*256/2
+      rep movsd
+
+      mov eax, ostatnia
+      cmp eax, 528
+      je msok2
+      inc ostatnia
+msok2:
+      fild ostatnia
+      fimul linio
+      fistp  wynik     
+      mov esi, scroll_text
+      add esi, wynik
+      mov ecx, 256/2
+      rep movsd
+
+      ret
+      endp
+;
+;
+;
+draw_spr_wa proc
+;     in: ax, bx - [x_lenght, y_lenght]
+;	  edx, ecx - [x, y]
+
+
+   mov ebp, eax
+   mov edi, scr_buffer
+
+   mov ax, 320*2
+   xchg ecx, edx
+   mul dx
+   mov edx, eax
+   shl cx, 1
+   add edx, ecx
+   mov eax, ebp
+   add edi, edx
+
+   mov ebp, rgb_address
+
+   mov ecx, 320
+   sub ecx, ebx
+   shl cx, 1
+   mov dsx, ecx
+d_saa_w:
+    mov cx, bx
+    push eax
+d_sbb_w:
+    mov dx, [esi]
+    shl dx, 1
+    mov al, [ebp+edx]
+    mov ah, [ebp+edx+1]
+    mov dx, [edi]
+    shl dx, 1
+    mov dl, [ebp+edx]
+    mov dh, [ebp+edx+1]
+    add al, dl
+    mov dl, dh
+    add dl, ah
+    xor ah, ah
+    shl dx, 11
+    add ax, dx
+    mov dx, [edi]
+    and dx, 0000011111100000b
+    
+    add edi,2
+    dec cx
+    jnz d_sbb_w
+    add edi, dsx
+    pop eax
+    dec ax
+   jnz d_saa_w
+
+ret
+endp
